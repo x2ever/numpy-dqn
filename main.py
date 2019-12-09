@@ -4,7 +4,8 @@ import gym_SnakeGame
 from numpy_rl import DQN, FCNPolicy
 
 env = gym.make("SnakeGame-v0", size=4)
+env = gym.make('CartPole-v0')
 model = DQN(env=env, policy=FCNPolicy)
 
-model.train(1000000, render=False, model_dir="./models/", log_dir="./logs/", trained_model_path='models\\model-185000.weight')
-# model.test(model_path='models\\model-135000.weight')
+model.train(1000000, render=False, model_dir="./models/", log_dir="./logs/")
+# model.test(model_path='models\\model-46000.weight')

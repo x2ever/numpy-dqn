@@ -17,19 +17,20 @@ class DQN:
     def __init__(self, env: gym.Env, policy: Policy, replay_memory_len=1000000, batch_size=256):
         self.env = env
         self.env.reset()
-        state_n = self.env.state_size
-        action_n = self.env.action_size
-
-        self.Q = policy(input_n=state_n, output_n=action_n)
-        self.target_Q = policy(input_n=state_n, output_n=action_n)
+        #state_n = self.env.state_size
+        #action_n = self.env.action_size
+        state_n = self.env.observation_space.shape[0]
+        self.action_n = 2
+        self.Q = policy(input_n=state_n, output_n=self.action_n)
+        self.target_Q = policy(input_n=state_n, output_n=self.action_n)
         self.memory = deque()
         self.batch_size = batch_size
-        self.update_epoch = 1000
+        self.update_epoch = 10
         self.replay_memory_len = replay_memory_len
         self.alpha = 0.65
-        self.e = 1.0
+        self.e = 0.5
 
-    def train(self, epoch, ready_epoch=10000, render=False, log_dir=None, model_dir=None, trained_model_path=None):
+    def train(self, epoch, ready_epoch=100, render=False, log_dir=None, model_dir=None, trained_model_path=None):
         ep_rewards = list()
         costs = list()
         if trained_model_path:
@@ -55,13 +56,15 @@ class DQN:
                 flat_state = np.reshape(state, (-1))
                 if i > ready_epoch and self.e <= np.random.random():
                     Q_value = self.Q.predict(flat_state)
-                    copy_Q_val = copy.copy(Q_value)
-                    copy_Q_val -= np.min(copy_Q_val) - 0.1
-                    action = random.choices(population=[0, 1, 2, 3], weights=copy_Q_val)[0]
+                    action = np.argmax(Q_value)
                 else:
-                    self.e *= 0.999
-                    action = np.random.randint(0, 4)
+                    if self.e > 0.1:
+                        self.e *= 0.98
+
+                    
+                    action = np.random.randint(0, self.action_n)
                 next_state, reward, done, _ = self.env.step(action)
+                reward /= 100
                 ep_reward += reward
                 if render and i > ready_epoch:
                     img = self.env.render()
@@ -108,11 +111,11 @@ class DQN:
 
             if i % self.update_epoch == 0 and i != 0 and i > ready_epoch:
                 self.Q.layers = self.target_Q.layers
-                if model_dir:
+                if model_dir and (i % 1000 == 0):
                     with open(model_dir + "\\model-%d.weight" % i, 'wb') as f:
                         pickle.dump(self.Q.layers, f)
                 
-                if log_dir:
+                if log_dir and (i % 500 == 0):
                     with open(log_dir + "\\log.txt", 'a') as f:
                         data = "%d\t%f\t%f\n" % (i, sum(ep_rewards) / len(ep_rewards), sum(costs) / len(costs))
                         f.write(data)
@@ -137,7 +140,12 @@ class DQN:
             cv2.waitKey(1000)
             flat_state = np.reshape(state, (-1))
             Q_value = self.Q.predict(flat_state)
-            action = np.argmax(Q_value)
+            Q_value = self.Q.predict(flat_state)
+            copy_Q_val = copy.copy(Q_value)
+            length = len(copy_Q_val) - 1
+            sorted_Q_val = np.sort(copy_Q_val)
+            copy_Q_val -= sorted_Q_val[int(length / 2)]
+            action = random.choices(population=[0, 1, 2, 3], weights=copy_Q_val)[0]
             next_state, reward, done, _ = self.env.step(action)
             flat_next_state = np.reshape(next_state, (-1))
             state = flat_next_state

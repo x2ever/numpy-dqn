@@ -22,7 +22,7 @@ class FCNPolicy(Policy):
         
         self.layers.append((output_w, output_b))
 
-    def train(self, x, y, learning_rate=0.0005):
+    def train(self, x, y, learning_rate=0.0001):
         predict, update_helper = self.predict(x, update_mode=True)
         update_layers = list()
         d = predict - y
