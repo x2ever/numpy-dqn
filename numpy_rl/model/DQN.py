@@ -14,31 +14,28 @@ from collections import deque
 
 
 class DQN:
-    def __init__(self, env: gym.Env, policy: Policy, replay_memory_len=1000000, batch_size=256):
+    def __init__(self, env: gym.Env, policy: Policy, replay_memory_len=100000, batch_size=256):
         self.env = env
-        self.env.reset()
-        #state_n = self.env.state_size
-        #action_n = self.env.action_size
-        state_n = self.env.observation_space.shape[0]
-        self.action_n = 2
+        state_n = self.env.state_size
+        self.action_n = self.env.action_size
+
         self.Q = policy(input_n=state_n, output_n=self.action_n)
         self.target_Q = policy(input_n=state_n, output_n=self.action_n)
         self.memory = deque()
         self.batch_size = batch_size
-        self.update_epoch = 10
+        self.update_interval = 1000
         self.replay_memory_len = replay_memory_len
-        self.alpha = 0.65
-        self.e = 0.5
 
-    def train(self, epoch, ready_epoch=100, render=False, log_dir=None, model_dir=None, trained_model_path=None):
+    def train(self, epoch, ready_epoch=300, render=False, log_dir=None, model_dir=None, trained_model_path=None):
         ep_rewards = list()
         costs = list()
+        e = 1
         if trained_model_path:
             with open(trained_model_path, 'rb') as f:
                 layers = pickle.load(f)
 
             self.Q.layers = layers
-            self.target_Q.layers = layers
+            e = 0.05
 
         if model_dir:
             os.makedirs(model_dir, exist_ok=True)
@@ -46,25 +43,28 @@ class DQN:
             os.makedirs(log_dir, exist_ok=True)
             with open(log_dir + "\\log.txt", 'w') as f:
                 pass
+        self.target_Q.layers = np.copy(self.Q.layers)
 
-        for i in range(epoch):
+        step = 0
+        for i in range(1, epoch + 1):
             state = self.env.reset()
             ep_reward = 0
             ep_len = 0
+            cost = 0
             while True:
                 ep_len += 1
+                step += 1
                 flat_state = np.reshape(state, (-1))
-                if i > ready_epoch and self.e <= np.random.random():
-                    Q_value = self.Q.predict(flat_state)
+                if e > 0.1 and i > ready_epoch:
+                    e -= 0.0001
+
+                if i > ready_epoch and e <= np.random.random():
+                    Q_value = self.Q.predict([flat_state])
                     action = np.argmax(Q_value)
                 else:
-                    if self.e > 0.1:
-                        self.e *= 0.98
-
-                    
                     action = np.random.randint(0, self.action_n)
                 next_state, reward, done, _ = self.env.step(action)
-                reward /= 100
+                next_state = np.copy(next_state)
                 ep_reward += reward
                 if render and i > ready_epoch:
                     img = self.env.render()
@@ -76,53 +76,57 @@ class DQN:
                 if len(self.memory) > self.replay_memory_len:
                     self.memory.popleft()
 
+                if i > ready_epoch:
+                    states, next_states, action, reward, terminal = self._sample_memory()
+
+                    next_states = np.array(next_states)
+                    target_Q_value = self.target_Q.predict(next_states)
+                    states = np.array(states)
+                    Q_value = self.Q.predict(states)
+
+                    Y = list()
+                    for j in range(self.batch_size):
+                        if terminal[j]:
+                            Q_value[j, action[j]] = reward[j]
+                            Y.append(Q_value[j])
+                        else:
+                            Q_value[j, action[j]] = reward[j] + 0.99 * np.max(target_Q_value[j])
+                            Y.append(Q_value[j])
+
+                    Y = np.array(Y)
+                    cost = self.Q.train(states, Y)
+                    costs.append(cost)
+
+                    if step % self.update_interval == 0:
+                        self.target_Q.layers = np.copy(self.Q.layers)
+
                 if done:
                     if render:
                         cv2.destroyAllWindows()
                     break
+                state = next_state
+            
+            if i <= ready_epoch:
+                continue
 
-            if i > ready_epoch:
-                state, next_state, action, reward, terminal = self._sample_memory()
-                target_Q_value = self.target_Q.predict(next_state)
-                Q_value = self.Q.predict(state)
-
-                Y = list()
-                for j in range(self.batch_size):
-                    if terminal[j]:
-                        Q_value[j, action[j]] = (1 - self.alpha) * Q_value[j, action[j]] + self.alpha * reward[j]
-                        Y.append(Q_value[j])
-                    else:
-                        Q_value[j, action[j]] = (1 - self.alpha) * Q_value[j, action[j]] + self.alpha * (reward[j] + 0.99 * np.max(target_Q_value[j]))
-                        Y.append(Q_value[j])
-
-                state = np.array(state)
-                Y = np.array(Y)
-                cost = self.Q.train(state, Y)
-
-                print("[Epsode: {:>8}] Reward: {:>25} Cost: {:>25} Episode Length: {:>4}".format(
-                    i, ep_reward, cost, ep_len
+            if i % 1 == 0:
+                self_e = "%.5f" % e
+                print("[Epsode: {:>8}] Reward: {:>5} epsilon: {:>5} Cost: {:>25} Episode Length: {:>4}".format(
+                    i, ep_reward, self_e, cost, ep_len
                 ), end="\r")
-                ep_rewards.append(ep_reward)
-                costs.append(cost)
-            else:
-                print("[Epsode: {:>8}] Exploring until {:>6}".format(
-                    i, ready_epoch                    
-                ))
-
-            if i % self.update_epoch == 0 and i != 0 and i > ready_epoch:
-                self.Q.layers = self.target_Q.layers
-                if model_dir and (i % 1000 == 0):
-                    with open(model_dir + "\\model-%d.weight" % i, 'wb') as f:
-                        pickle.dump(self.Q.layers, f)
-                
-                if log_dir and (i % 500 == 0):
-                    with open(log_dir + "\\log.txt", 'a') as f:
-                        data = "%d\t%f\t%f\n" % (i, sum(ep_rewards) / len(ep_rewards), sum(costs) / len(costs))
-                        f.write(data)
+            ep_rewards.append(ep_reward)
+            if model_dir and (i % 1000 == 0):
+                with open(model_dir + "\\model-%d.weight" % i, 'wb') as f:
+                    pickle.dump(self.Q.layers, f)
+            
+            if log_dir and (i % 50 == 0):
+                with open(log_dir + "\\log.txt", 'a') as f:
+                    data = "%d\t%f\t%f\n" % (i, sum(ep_rewards) / len(ep_rewards), sum(costs) / len(costs))
+                    f.write(data)
 
 
-
-                print(f"\nFrom {i - self.update_epoch} to {i},")
+            if i % 200 == 0:
+                print(f"\nFrom {i - 200} to {i},")
                 print(f"\tMean Reward: {sum(ep_rewards) / len(ep_rewards)}")
                 print(f"\tMean Cost: {sum(costs) / len(costs)}")
                 ep_rewards = list()
@@ -140,19 +144,13 @@ class DQN:
             cv2.waitKey(1000)
             flat_state = np.reshape(state, (-1))
             Q_value = self.Q.predict(flat_state)
-            Q_value = self.Q.predict(flat_state)
-            copy_Q_val = copy.copy(Q_value)
-            length = len(copy_Q_val) - 1
-            sorted_Q_val = np.sort(copy_Q_val)
-            copy_Q_val -= sorted_Q_val[int(length / 2)]
-            action = random.choices(population=[0, 1, 2, 3], weights=copy_Q_val)[0]
+            action = np.argmax(Q_value)
             next_state, reward, done, _ = self.env.step(action)
             flat_next_state = np.reshape(next_state, (-1))
             state = flat_next_state
             if done:
                 cv2.destroyAllWindows()
                 break
-
 
     def _sample_memory(self):
         sample_memory = random.sample(self.memory, self.batch_size)
