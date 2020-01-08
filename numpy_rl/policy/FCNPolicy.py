@@ -4,7 +4,7 @@ import numpy as np
 class FCNPolicy(Policy):
     #For weight initialization, used He normal init.
     #For bias initialization, used Zero init.
-    def __init__(self, input_n, output_n, hidden_n=64, hidden_layer_n=2):
+    def __init__(self, input_n, output_n, hidden_n=16, hidden_layer_n=1):
         self.layers = list()
         input_w = np.random.normal(scale=np.sqrt(2 / input_n), size=(input_n, hidden_n))
         input_b = np.zeros(hidden_n)
@@ -22,7 +22,7 @@ class FCNPolicy(Policy):
         
         self.layers.append((output_w, output_b))
 
-    def train(self, x, y, learning_rate=0.0007):
+    def train(self, x, y, learning_rate=0.00003):
         predict, update_helper = self.predict(x, update_mode=True)
         update_layers = list()
         d = predict - y

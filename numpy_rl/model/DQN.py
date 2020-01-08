@@ -14,10 +14,11 @@ from collections import deque
 
 
 class DQN:
-    def __init__(self, env: gym.Env, policy: Policy, replay_memory_len=100000, batch_size=256):
+    def __init__(self, env: gym.Env, policy: Policy, replay_memory_len=200000, batch_size=512):
         self.env = env
-        state_n = self.env.state_size
-        self.action_n = self.env.action_size
+        state_n = self.env.observation_space.shape[0]
+        self.action_n = self.env.action_space.n
+
 
         self.Q = policy(input_n=state_n, output_n=self.action_n)
         self.target_Q = policy(input_n=state_n, output_n=self.action_n)
@@ -35,7 +36,7 @@ class DQN:
                 layers = pickle.load(f)
 
             self.Q.layers = layers
-            e = 0.05
+            e = 0.0001
 
         if model_dir:
             os.makedirs(model_dir, exist_ok=True)
